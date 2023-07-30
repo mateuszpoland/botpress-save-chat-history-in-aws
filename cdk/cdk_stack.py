@@ -1,11 +1,11 @@
 from constructs import Construct
 from aws_cdk import (
-    Duration,
     Stack,
-    aws_iam as iam,
-    aws_sqs as sqs,
-    aws_sns as sns,
-    aws_sns_subscriptions as subs,
+    RemovalPolicy,
+    aws_lambda as _lambda,
+    aws_ec2 as ec2,
+    aws_efs as efs,
+    aws_apigateway as apigw,
 )
 
 
@@ -14,13 +14,58 @@ class CdkStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        queue = sqs.Queue(
-            self, "CdkQueue",
-            visibility_timeout=Duration.seconds(300),
+        # Create a new VPC with private subnet
+        vpc = ec2.Vpc(self, "chatbot-vpc",
+            max_azs=3,
+            subnet_configuration=[ec2.SubnetConfiguration(
+                subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
+                name="Private",
+                cidr_mask=24
+            )]
         )
 
-        topic = sns.Topic(
-            self, "CdkTopic"
+         # Create a new EFS file system
+        file_system = efs.FileSystem(self, "MyEfsFileSystem",
+            vpc=vpc,
+            encrypted=True,
+            performance_mode=efs.PerformanceMode.GENERAL_PURPOSE,
+            removal_policy=RemovalPolicy.DESTROY,
         )
 
-        topic.add_subscription(subs.SqsSubscription(queue))
+        # EFS access point
+        access_point = file_system.add_access_point(
+            "AccessPoint",
+            path="/export",
+            create_acl=efs.Acl(owner_uid="1000", owner_gid="1000", permissions="750"),
+            posix_user=efs.PosixUser(gid="1000", uid="1000")
+        )
+
+        #new lambda resource
+        lambda_fn = _lambda.Function(
+            self,
+            "saveChatbotHistory",
+            runtime=_lambda.Runtime.PYTHON_3_10,
+            handler="save_chat_history.handler",
+            code=_lambda.Code.from_asset("lambda"),
+            vpc=vpc,
+            filesystem=_lambda.FileSystem.from_efs_access_point(access_point, "/mnt/efs")  # Access EFS via "/mnt/efs" in the Lambda function     
+        )
+
+        # Create API Gateway
+        api_gateway = apigw.LambdaRestApi(
+            self,
+            "SaveChatbotHistory",
+            handler=lambda_fn,
+            proxy=False,
+        )
+
+        # post endpoint
+        #post_integration = apigw.Integration(
+        #    type=apigw.IntegrationType.AWS_PROXY,
+        #    integration_http_method="POST",
+        #    uri=lambda_fn.function_arn,
+        #)
+
+        post_integration = apigw.LambdaIntegration(lambda_fn)
+
+        api_gateway.root.add_method("POST", post_integration)
