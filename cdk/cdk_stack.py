@@ -52,20 +52,15 @@ class CdkStack(Stack):
         )
 
         # Create API Gateway
-        api_gateway = apigw.LambdaRestApi(
+        api_gateway = apigw.RestApi(
             self,
-            "SaveChatbotHistory",
-            handler=lambda_fn,
-            proxy=False,
+            "SaveChatbotHistory"
         )
 
-        # post endpoint
-        #post_integration = apigw.Integration(
-        #    type=apigw.IntegrationType.AWS_PROXY,
-        #    integration_http_method="POST",
-        #    uri=lambda_fn.function_arn,
-        #)
+        bot_id_resource = api_gateway.root.add_resource("{bot-id}")
+        client_id_resource = bot_id_resource.add_resource("{client-id}")
+        save_history_resource = client_id_resource.add_resource("save_history")
+
 
         post_integration = apigw.LambdaIntegration(lambda_fn)
-
-        api_gateway.root.add_method("POST", post_integration)
+        save_history_resource.add_method("POST", post_integration)
