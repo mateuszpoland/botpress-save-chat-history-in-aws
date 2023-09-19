@@ -55,13 +55,7 @@ class CdkStack(Stack):
             "saveChatbotHistory",
             runtime=_lambda.Runtime.PYTHON_3_10,
             handler="save_chat_history.handler",
-            code=_lambda.Code.from_asset(
-            "lambda",
-            bundling=BundlingOptions(
-                    image=DockerImage.from_registry("public.ecr.aws/lambda/python:3.10"),
-                    command=["bash", "-c", "./scripts/bundle.sh"],
-                )
-            ),
+            code=_lambda.Code.from_asset("lambda/package/save_chat_history.zip"),
             vpc=vpc,
             filesystem=_lambda.FileSystem.from_efs_access_point(access_point, "/mnt/efs"),  # Access EFS via "/mnt/efs" in the Lambda function  
             environment={
@@ -85,3 +79,4 @@ class CdkStack(Stack):
         save_history_resource.add_method("GET", get_integration)
 
         bucket.grant_read_write(lambda_fn)
+        vpc.add_gateway_endpoint("S3Endpoint", service=ec2.GatewayVpcEndpointAwsService.S3)

@@ -4,10 +4,13 @@ import boto3
 from datetime import datetime
 from typing import Any, Dict
 from botocore.exceptions import BotoCoreError, ClientError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+import logging
 
 s3 = boto3.client('s3')
 bucket_name = os.environ['BUCKET_NAME']  # This should be set as an environment variable when deploying the function
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 class ChatContent(BaseModel):
     conversation_id: str
@@ -33,37 +36,32 @@ def handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         data = f"{timestamp}: {content}\n"
 
         try:
-            # Try to append to the existing object
-            response = s3.get_object(Bucket=bucket_name, Key=key)
-            existing_data = response['Body'].read().decode()
-            data = existing_data + data
-        except (BotoCoreError, ClientError):
-            # The object does not exist, we will create it
-            pass
-
-        try:
-            s3.put_object(Body=data, Bucket=bucket_name, Key=key)
+            response = s3.put_object(Body=data, Bucket=bucket_name, Key=key)
+            logger.info(f"Response from S3: {response}")  # Log the response from S3
             return {
                 'statusCode': 201,
                 'headers': {
-                    'content-type': 'text/plain'
+                    'content-type': 'application/json',
                 },
-                'body': f'Successfully created or updated {key}\n'
+                'body': json.dumps({'msg': f'Successfully created or updated {key}'})
             }
-        except (BotoCoreError, ClientError) as error:
+        except (BotoCoreError, ClientError, Exception) as error:
+            logger.error(f"Error error: {error}")
             return {
                 'statusCode': 422,
                 'headers': {
-                    'content-type': 'text/plain'
+                    'content-type': 'application/json'
                 },
-                'body': f'Could not create or update {key}: {str(error)}\n'
+                'body': json.dumps({'msg': f'Could not create or update {key}: {str(error)}'})
             }
-    except ValueError as ve:
+    except (ValueError, ValidationError) as ve:
+        logger.error(f"Value error: {ve}")
         return {
             'statusCode': 400,
             'body': str(ve)
         }
     except Exception as e:
+        logger.error(f"Unknown error: {e}")
         return {
             'statusCode': 500,
             'body': str(e)
